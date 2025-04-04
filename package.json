@@ -2,10 +2,15 @@
   "name": "hardhat-project",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/circomlibjs": "^0.1.6",
+    "@types/snarkjs": "^0.7.9",
     "hardhat": "^2.22.19"
   },
   "dependencies": {
+    "@openzeppelin/contracts": "^5.2.0",
     "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "fixed-merkle-tree": "^0.7.3",
     "paillier-bigint": "^3.4.3",
     "snarkjs": "^0.7.5"
   }
