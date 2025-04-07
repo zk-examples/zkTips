@@ -1,16 +1,39 @@
-import * as crypto from "crypto";
 import * as fs from "fs";
 import { buildMimcSponge } from "circomlibjs";
 import * as snarkjs from "snarkjs";
-import { MerkleTree, HashFunction, Element } from "fixed-merkle-tree";
+import { ZkTips } from "../../typechain-types";
+
+export async function createDepositCommitment(
+  zkTips: ZkTips,
+  signer: any,
+  value: string,
+  secret: string,
+  nullifier: string
+) {
+  const { proof, publicSignals } = await createDepositProof(
+    value,
+    secret,
+    nullifier
+  );
+
+  await zkTips.connect(signer).createDepositCommitment(
+    [proof.pi_a[0], proof.pi_a[1]],
+    [
+      [proof.pi_b[0][1], proof.pi_b[0][0]],
+      [proof.pi_b[1][1], proof.pi_b[1][0]],
+    ],
+    [proof.pi_c[0], proof.pi_c[1]],
+    [publicSignals[0], publicSignals[1]]
+  );
+}
 
 export async function createDepositProof(
-  nullifier: string,
+  value: string,
   secret: string,
-  value: string
+  nullifier: string
 ) {
   return await snarkjs.groth16.fullProve(
-    await getCommitmentData(nullifier, secret, value),
+    await getCommitmentData(value, secret, nullifier),
     "test/createDepositCommitment/createDepositCommitment.wasm",
     "test/createDepositCommitment/createDepositCommitment.zkey"
   );
@@ -31,9 +54,9 @@ export async function verifyDepositProof(
 }
 
 export async function getCommitmentData(
-  nullifier: string,
+  value: string,
   secret: string,
-  value: string
+  nullifier: string
 ) {
   const mimc = await buildMimcSponge();
 

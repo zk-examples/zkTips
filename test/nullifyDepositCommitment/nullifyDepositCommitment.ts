@@ -1,20 +1,51 @@
 import * as fs from "fs";
-import { buildMimcSponge } from "circomlibjs";
 import * as snarkjs from "snarkjs";
-import { getRandomBigInt, toFixedHex, TREE_LEVELS } from "../common/common";
-
 import paillierBigint from "paillier-bigint";
 import { MerkleTree, HashFunction, Element } from "fixed-merkle-tree";
+
 import { MiMC } from "../common/MiMC";
+import { ZkTips } from "../../typechain-types";
+import { getRandomBigInt, TREE_LEVELS, ZERO_VALUE } from "../common/common";
+
+export async function nullifyDepositCommitment(
+  zkTips: ZkTips,
+  signer: any,
+  value: string,
+  secret: string,
+  nullifier: string,
+  keys: paillierBigint.KeyPair,
+  authCommitment: string,
+  tree: MerkleTree
+) {
+  const { proof, publicSignals } = await nullifyDepositProof(
+    value,
+    secret,
+    nullifier,
+    keys,
+    tree
+  );
+
+  await zkTips.connect(signer).nullifyDepositCommitment(
+    [proof.pi_a[0], proof.pi_a[1]],
+    [
+      [proof.pi_b[0][1], proof.pi_b[0][0]],
+      [proof.pi_b[1][1], proof.pi_b[1][0]],
+    ],
+    [proof.pi_c[0], proof.pi_c[1]],
+    publicSignals,
+    authCommitment
+  );
+}
 
 export async function nullifyDepositProof(
   value: string,
   secret: string,
   nullifier: string,
-  keys: paillierBigint.KeyPair
+  keys: paillierBigint.KeyPair,
+  tree: MerkleTree
 ) {
   return await snarkjs.groth16.fullProve(
-    await getNullifyDepositCommitmentData(value, secret, nullifier, keys),
+    await getNullifyDepositCommitmentData(value, secret, nullifier, keys, tree),
     "test/nullifyDepositCommitment/nullifyDepositCommitment.wasm",
     "test/nullifyDepositCommitment/nullifyDepositCommitment.zkey"
   );
@@ -38,29 +69,17 @@ export async function getNullifyDepositCommitmentData(
   value: string,
   secret: string,
   nullifier: string,
-  keys: paillierBigint.KeyPair
+  keys: paillierBigint.KeyPair,
+  tree: MerkleTree
 ) {
-  const mimc = await buildMimcSponge();
-
   const mimcSponge = new MiMC();
   await mimcSponge.init();
 
-  const hashFunction: HashFunction<Element> = (left, right) => {
-    return mimcSponge.hash(left, right);
-  };
+  const commitment = mimcSponge.multiHash([value, secret, nullifier]);
 
-  const tree = new MerkleTree(TREE_LEVELS, undefined, {
-    hashFunction,
-    zeroElement: "0",
-  });
+  tree.insert(commitment);
 
-  const commitment = mimc.F.toString(
-    mimc.multiHash([value, secret, nullifier])
-  );
-
-  tree.insert(toFixedHex(commitment));
-
-  const proof = tree.path(0);
+  const proof = tree.proof(commitment);
 
   const r = getRandomBigInt(keys.publicKey.n);
 

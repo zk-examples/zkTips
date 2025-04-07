@@ -26,14 +26,26 @@ export class MiMC {
     return this.mimcSponge.F.toString(mimcHash);
   }
 
-  simpleHash(left: Element): string {
+  simpleHash(input: Element): string {
     if (!this.mimcSponge) {
       console.error("MimcSponge not initialized. Call init() first.");
       return "";
     }
 
     const k = 0;
-    const mimcHash = this.mimcSponge.multiHash([left], k);
+    const mimcHash = this.mimcSponge.multiHash([input], k);
+
+    return this.mimcSponge.F.toString(mimcHash);
+  }
+
+  multiHash(inputs: Element[]): string {
+    if (!this.mimcSponge) {
+      console.error("MimcSponge not initialized. Call init() first.");
+      return "";
+    }
+
+    const k = 0;
+    const mimcHash = this.mimcSponge.multiHash(inputs, k);
 
     return this.mimcSponge.F.toString(mimcHash);
   }

@@ -3,27 +3,27 @@ pragma solidity ^0.8.24;
 
 interface ICreateDepositCommitment {
     function verifyProof(
-        uint[2] calldata _pA,
-        uint[2][2] calldata _pB,
-        uint[2] calldata _pC,
-        uint[2] calldata _pubSignals
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[2] calldata _pubSignals
     ) external view returns (bool);
 }
 
 interface INullifyDepositCommitment {
     function verifyProof(
-        uint[2] calldata _pA,
-        uint[2][2] calldata _pB,
-        uint[2] calldata _pC,
-        uint[6] calldata _pubSignals
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[6] calldata _pubSignals
     ) external view returns (bool);
 }
 
 interface ITransferVerifier {
     function verifyProof(
-        uint[2] calldata _pA,
-        uint[2][2] calldata _pB,
-        uint[2] calldata _pC,
-        uint[4] calldata _pubSignals
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[4] calldata _pubSignals
     ) external view returns (bool);
 }

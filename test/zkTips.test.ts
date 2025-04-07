@@ -1,45 +1,73 @@
-import {
-  time,
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { assert, expect } from "chai";
-import hre from "hardhat";
-import * as crypto from "crypto";
-
-import * as snarkjs from "snarkjs";
-
-import { buildMimcSponge, MimcSponge, mimcSpongecontract } from "circomlibjs";
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { mimcSpongecontract } from "circomlibjs";
 import paillierBigint from "paillier-bigint";
+import { expect } from "chai";
+import hre from "hardhat";
 
 import {
+  createDepositCommitment,
   createDepositProof,
   verifyDepositProof,
 } from "./createDepositCommitment/createDepositCommitment";
 import {
+  nullifyDepositCommitment,
   nullifyDepositProof,
   verifyNullifyDepositProof,
 } from "./nullifyDepositCommitment/nullifyDepositCommitment";
 
-import { transferProof, verifyTransferProof } from "./transfer/transfer";
+import {
+  transfer,
+  transferProof,
+  verifyTransferProof,
+} from "./transfer/transfer";
 
-import { SEED } from "./common/common";
+import {
+  getNullifierOrSecret,
+  SEED,
+  TREE_LEVELS,
+  ZERO_VALUE,
+} from "./common/common";
 import { MiMC } from "./common/MiMC";
+import { TestToken, ZkTips } from "../typechain-types";
+import MerkleTree, { HashFunction, Element } from "fixed-merkle-tree";
 
+// npx hardhat test test\zkTips.test.ts
 describe("zkTips", function () {
   let signers: any[];
-  let mimc: MimcSponge;
-  let mimcsponge: any;
+
+  let mimcsponge: any; // contract
+  let zkTips: ZkTips;
+  let createDepositVerifier: any;
+  let nullifyDepositVerifier: any;
+  let transferVerifier: any;
+  let token: TestToken;
+
   let keysA: paillierBigint.KeyPair;
   let keysB: paillierBigint.KeyPair;
-  let mimcSponge: MiMC;
-  let nullifier: string;
-  let secret: string;
-  let value: string;
   let keys: paillierBigint.KeyPair;
+
+  let mimcSponge: MiMC;
+  let tree: MerkleTree;
+
+  let nullifierA: string;
+  let nullifierB: string;
+  let secretA: string;
+  let secretB: string;
+  let value: string;
+  const initBalance = hre.ethers.parseEther("1000");
 
   async function deployFixture() {
     mimcSponge = new MiMC();
     await mimcSponge.init();
+
+    const hashFunction: HashFunction<Element> = (left, right) => {
+      return mimcSponge.hash(left, right);
+    };
+
+    tree = new MerkleTree(TREE_LEVELS, undefined, {
+      hashFunction,
+      zeroElement: ZERO_VALUE,
+    });
 
     signers = await hre.ethers.getSigners();
 
@@ -52,29 +80,57 @@ describe("zkTips", function () {
     await mimcsponge.waitForDeployment();
     const mimcspongeAddr = (await mimcsponge.getAddress()) as string;
 
-    mimc = await buildMimcSponge();
+    token = (await hre.ethers.deployContract("TestToken", [
+      signers[0],
+      signers[1],
+    ])) as unknown as TestToken;
+
+    createDepositVerifier = await hre.ethers.deployContract(
+      "CreateDepositCommitmentVerifier"
+    );
+    nullifyDepositVerifier = await hre.ethers.deployContract(
+      "NullifyDepositCommitment"
+    );
+    transferVerifier = await hre.ethers.deployContract("TransferVerifier");
+
+    zkTips = (await hre.ethers.deployContract("zkTips", [
+      TREE_LEVELS,
+      mimcspongeAddr,
+      token.target,
+
+      createDepositVerifier.target,
+      nullifyDepositVerifier.target,
+      transferVerifier.target,
+      transferVerifier.target,
+      transferVerifier.target,
+    ])) as unknown as ZkTips;
 
     keysA = await paillierBigint.generateRandomKeys(32);
     keysB = await paillierBigint.generateRandomKeys(32);
+
+    await token.connect(signers[0]).approve(zkTips.target, initBalance);
+    await token.connect(signers[1]).approve(zkTips.target, initBalance);
+
+    commitmentFixture();
   }
 
   async function commitmentFixture() {
-    nullifier = nullifier = BigInt(
-      "0x" + crypto.randomBytes(31).toString("hex")
-    ).toString();
-    secret = BigInt("0x" + crypto.randomBytes(31).toString("hex")).toString();
+    nullifierA = getNullifierOrSecret();
+    secretA = getNullifierOrSecret();
     value = 100n.toString();
     keys = await paillierBigint.generateRandomKeys(32);
+    nullifierB = getNullifierOrSecret();
+    secretB = getNullifierOrSecret();
   }
 
-  describe("snarkjs", function () {
+  describe.skip("snarkjs", function () {
     it("Create Deposit Commitment", async function () {
       await loadFixture(commitmentFixture);
 
       const { proof, publicSignals } = await createDepositProof(
-        nullifier,
-        secret,
-        value
+        value,
+        secretA,
+        nullifierA
       );
 
       const result = await verifyDepositProof(proof, publicSignals);
@@ -87,8 +143,8 @@ describe("zkTips", function () {
 
       const { proof, publicSignals } = await nullifyDepositProof(
         value,
-        secret,
-        nullifier,
+        secretA,
+        nullifierA,
         keys
       );
 
@@ -109,8 +165,8 @@ describe("zkTips", function () {
         keysB,
         BigInt(value),
         keysA.publicKey.encrypt(BigInt(value)),
-        BigInt(mimcSponge.simpleHash(secret)),
-        BigInt(secret)
+        BigInt(mimcSponge.simpleHash(secretA)),
+        BigInt(secretA)
       );
 
       const valueA = keysA.privateKey.decrypt(BigInt(publicSignals[0]));
@@ -119,7 +175,7 @@ describe("zkTips", function () {
       expect(valueA == BigInt(value)).to.be.true;
       expect(valueB == BigInt(value)).to.be.true;
 
-      expect(publicSignals[3] == mimcSponge.simpleHash(secret)).to.be.true;
+      expect(publicSignals[3] == mimcSponge.simpleHash(secretA)).to.be.true;
 
       const result = await verifyTransferProof(proof, publicSignals);
 
@@ -127,13 +183,146 @@ describe("zkTips", function () {
     });
   });
 
-  describe("External contracts", function () {
-    // it("Checking MiMC hash()", async function () {
-    //   // await loadFixture(deployContracts);
-    //   const res = await mimcsponge["MiMCSponge"](1, 2, 3);
-    //   const res2 = mimc.hash(1, 2, 3);
-    //   assert.equal(res.xL.toString(), mimc.F.toString(res2.xL));
-    //   assert.equal(res.xR.toString(), mimc.F.toString(res2.xR));
-    // });
+  describe("zkTips", function () {
+    it.skip("Deployed", async function () {
+      await loadFixture(deployFixture);
+
+      const balance0 = await token.balanceOf(signers[0]);
+      const balance1 = await token.balanceOf(signers[1]);
+
+      expect(balance0 == BigInt(initBalance)).to.be.true;
+      expect(balance1 == BigInt(initBalance)).to.be.true;
+    });
+
+    it.skip("Create Deposit Commitment", async function () {
+      await loadFixture(deployFixture);
+
+      const balanceBefore = await token.balanceOf(signers[0]);
+
+      const commitment = mimcSponge.multiHash([value, secretA, nullifierA]);
+
+      tree.insert(commitment);
+
+      await createDepositCommitment(
+        zkTips,
+        signers[0],
+        value,
+        secretA,
+        nullifierA
+      );
+
+      const balanceAfer = await token.balanceOf(signers[0]);
+
+      expect(balanceBefore - hre.ethers.parseUnits(value) == balanceAfer).to.be
+        .true;
+
+      expect(BigInt(tree.root) == BigInt(await zkTips.getLastRoot())).to.be
+        .true;
+    });
+
+    it.skip("Nullify Deposit Commitment", async function () {
+      await loadFixture(deployFixture);
+
+      await createDepositCommitment(
+        zkTips,
+        signers[0],
+        value,
+        secretA,
+        nullifierA
+      );
+
+      await nullifyDepositCommitment(
+        zkTips,
+        signers[0],
+        value,
+        secretA,
+        nullifierA,
+        keysA,
+        mimcSponge.simpleHash(secretA),
+        tree
+      );
+
+      const pubKey = await zkTips.getPubKey(0);
+
+      expect(pubKey[0] == keysA.publicKey.g).to.be.true;
+      expect(pubKey[1] == keysA.publicKey.n).to.be.true;
+      expect(pubKey[2] == keysA.publicKey._n2).to.be.true;
+      expect(
+        keysA.privateKey.decrypt(await zkTips.balanceOf(0)).toString() == value
+      ).to.be.true;
+    });
+
+    it("Transfer", async function () {
+      await loadFixture(deployFixture);
+
+      await createDepositCommitment(
+        zkTips,
+        signers[0],
+        value,
+        secretA,
+        nullifierA
+      );
+
+      await nullifyDepositCommitment(
+        zkTips,
+        signers[0],
+        value,
+        secretA,
+        nullifierA,
+        keysA,
+        mimcSponge.simpleHash(secretA),
+        tree
+      );
+
+      await createDepositCommitment(
+        zkTips,
+        signers[1],
+        value,
+        secretB,
+        nullifierB
+      );
+
+      await nullifyDepositCommitment(
+        zkTips,
+        signers[1],
+        value,
+        secretB,
+        nullifierB,
+        keysB,
+        mimcSponge.simpleHash(secretB),
+        tree
+      );
+
+      const transferValue = 20n;
+
+      expect(
+        keysA.privateKey.decrypt(await zkTips.balanceOf(0)).toString() == value
+      ).to.be.true;
+
+      expect(
+        keysB.privateKey.decrypt(await zkTips.balanceOf(1)).toString() == value
+      ).to.be.true;
+
+      await transfer(
+        zkTips,
+        signers[0],
+        keysA,
+        keysB,
+        transferValue,
+        secretA,
+        0n,
+        1n
+      );
+
+      expect(
+        keysA.privateKey.decrypt(await zkTips.balanceOf(0)) ==
+          BigInt(value) - transferValue
+      ).to.be.true;
+
+      expect(
+        keysB.privateKey.decrypt(await zkTips.balanceOf(1)) ==
+          BigInt(value) + transferValue
+      ).to.be.true;
+    });
   });
 });

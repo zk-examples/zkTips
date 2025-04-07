@@ -1,16 +1,20 @@
 import { buildMimcSponge, MimcSponge } from "circomlibjs";
 import { Contract, EventLog } from "ethers";
+import * as crypto from "crypto";
 
 export const TREE_LEVELS = 20;
 export const SEED = "mimcsponge";
 
 // = keccak256("tornado") % FIELD_SIZE
-export const ZERO_VALUE = BigInt(
-  "21663839004416932945382355908790599225266501822907911457504978515578255421292"
-);
+export const ZERO_VALUE =
+  "21663839004416932945382355908790599225266501822907911457504978515578255421292";
 
 export function getRandomBigInt(max: bigint) {
   return BigInt(Math.floor(Math.random() * Number(max.toString())));
+}
+
+export function getNullifierOrSecret() {
+  return BigInt("0x" + crypto.randomBytes(31).toString("hex")).toString();
 }
 
 export function toFixedHex(number: BigInt, length = 32) {

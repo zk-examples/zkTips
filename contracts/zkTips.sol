@@ -7,9 +7,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract zkTips is MerkleTreeWithHistory {
     struct Key {
-        uint g;
-        uint n;
-        uint powN2;
+        uint256 g;
+        uint256 n;
+        uint256 powN2;
     }
 
     struct User {
@@ -25,7 +25,7 @@ contract zkTips is MerkleTreeWithHistory {
     );
 
     // ID - User
-    mapping(uint => User) private users;
+    mapping(uint256 => User) private users;
 
     mapping(bytes32 => bool) public nullifiers;
     mapping(bytes32 => bool) public commitments;
@@ -35,9 +35,9 @@ contract zkTips is MerkleTreeWithHistory {
     IERC20 public token;
 
     ICreateDepositCommitment private createDepositVerifier;
-    INullifyDepositCommitment private nullifyDepositCommitmentVerifier;
+    INullifyDepositCommitment private nullifyDepositVerifier;
+    ITransferVerifier private transferVerifier;
 
-    // ITransfer private transferVerifier;
     // ICreateWithdrawCommitment private createWithdrawVerifier;
     // INullifyWithdrawCommitment private nullifWithdrawCommitmentVerifier;
 
@@ -46,7 +46,7 @@ contract zkTips is MerkleTreeWithHistory {
         address _hasher,
         address _token,
         address _createDepositVerifierAddr,
-        address _nullifyDepositCommitmentVerifier,
+        address _nullifyDepositVerifier,
         address _transferVerifier,
         address _createWithdrawVerifier,
         address _nullifWithdrawCommitmentVerifier
@@ -56,10 +56,10 @@ contract zkTips is MerkleTreeWithHistory {
         createDepositVerifier = ICreateDepositCommitment(
             _createDepositVerifierAddr
         );
-        nullifyDepositCommitmentVerifier = INullifyDepositCommitment(
-            _nullifyDepositCommitmentVerifier
+        nullifyDepositVerifier = INullifyDepositCommitment(
+            _nullifyDepositVerifier
         );
-        // transferVerifier = ITransfer(_transferVerifier);
+        transferVerifier = ITransferVerifier(_transferVerifier);
         // createWithdrawVerifier = ICreateWithdrawCommitment(
         //     _createWithdrawVerifier
         // );
@@ -69,18 +69,83 @@ contract zkTips is MerkleTreeWithHistory {
     }
 
     function createDepositCommitment(
-        uint[2] calldata a,
-        uint[2][2] calldata b,
-        uint[2] calldata c,
-        uint[2] calldata input
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[2] calldata input
     ) external {
         require(
             createDepositVerifier.verifyProof(a, b, c, input),
             "Invalid proof"
         );
 
-        token.transferFrom(msg.sender, address(this), input[0]);
+        token.transferFrom(msg.sender, address(this), input[0] * 1e18);
         _commit(bytes32(input[1]));
+    }
+
+    function nullifyDepositCommitment(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[6] calldata input,
+        uint256 authCommitment
+    ) external {
+        require(
+            nullifyDepositVerifier.verifyProof(a, b, c, input),
+            "Invalid proof"
+        );
+        require(
+            !nullifiers[bytes32(input[0])],
+            "The nullifier has been submitted"
+        );
+        require(isKnownRoot(bytes32(input[1])), "Cannot find your merkle root");
+
+        nullifiers[bytes32(input[0])] = true;
+
+        User memory user;
+        user.authCommitment = bytes32(authCommitment);
+        user.encryptedBalance = input[2];
+        user.key.g = input[3];
+        user.key.n = input[5];
+        user.key.powN2 = input[5] * input[5];
+
+        users[ids] = user;
+
+        ids++;
+    }
+
+    function transferFrom(
+        uint256 idFrom,
+        uint256 idTo,
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[4] calldata input
+    ) external {
+        require(transferVerifier.verifyProof(a, b, c, input), "Invalid proof");
+
+        User storage receiver = users[idTo];
+        User storage sender = users[idFrom];
+
+        require(bytes32(input[3]) == users[idFrom].authCommitment);
+
+        unchecked {
+            receiver.encryptedBalance =
+                (receiver.encryptedBalance * input[2]) %
+                receiver.key.powN2;
+
+            sender.encryptedBalance =
+                (sender.encryptedBalance * input[1]) %
+                sender.key.powN2;
+        }
+    }
+
+    function balanceOf(uint256 _id) external view returns (uint256) {
+        return users[_id].encryptedBalance;
+    }
+
+    function getPubKey(uint256 _id) external view returns (Key memory) {
+        return users[_id].key;
     }
 
     function _commit(bytes32 _commitment) internal {

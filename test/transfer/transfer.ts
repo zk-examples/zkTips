@@ -3,6 +3,45 @@ import * as snarkjs from "snarkjs";
 import paillierBigint from "paillier-bigint";
 
 import { getRandomBigInt } from "../common/common";
+import { ZkTips } from "../../typechain-types";
+import { MiMC } from "../common/MiMC";
+
+export async function transfer(
+  zkTips: ZkTips,
+  signer: any,
+  senderKeys: paillierBigint.KeyPair,
+  receiverKeys: paillierBigint.KeyPair,
+  value: bigint,
+  authSecret: string,
+  idFrom: bigint,
+  idTo: bigint
+) {
+  const mimcSponge = new MiMC();
+  await mimcSponge.init();
+
+  const authCommitment = mimcSponge.simpleHash(authSecret);
+
+  const { proof, publicSignals } = await transferProof(
+    senderKeys,
+    receiverKeys,
+    value,
+    senderKeys.publicKey.encrypt(value),
+    BigInt(authCommitment),
+    BigInt(authSecret)
+  );
+
+  await zkTips.connect(signer).transferFrom(
+    idFrom,
+    idTo,
+    [proof.pi_a[0], proof.pi_a[1]],
+    [
+      [proof.pi_b[0][1], proof.pi_b[0][0]],
+      [proof.pi_b[1][1], proof.pi_b[1][0]],
+    ],
+    [proof.pi_c[0], proof.pi_c[1]],
+    [publicSignals[0], publicSignals[1], publicSignals[2], publicSignals[3]]
+  );
+}
 
 export async function transferProof(
   senderKeys: paillierBigint.KeyPair,
