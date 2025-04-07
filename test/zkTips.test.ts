@@ -19,7 +19,11 @@ import {
   nullifyDepositProof,
   verifyNullifyDepositProof,
 } from "./nullifyDepositCommitment/nullifyDepositCommitment";
+
+import { transferProof, verifyTransferProof } from "./transfer/transfer";
+
 import { SEED } from "./common/common";
+import { MiMC } from "./common/MiMC";
 
 describe("zkTips", function () {
   let signers: any[];
@@ -27,8 +31,16 @@ describe("zkTips", function () {
   let mimcsponge: any;
   let keysA: paillierBigint.KeyPair;
   let keysB: paillierBigint.KeyPair;
+  let mimcSponge: MiMC;
+  let nullifier: string;
+  let secret: string;
+  let value: string;
+  let keys: paillierBigint.KeyPair;
 
   async function deployFixture() {
+    mimcSponge = new MiMC();
+    await mimcSponge.init();
+
     signers = await hre.ethers.getSigners();
 
     const MiMCSponge = new hre.ethers.ContractFactory(
@@ -46,21 +58,16 @@ describe("zkTips", function () {
     keysB = await paillierBigint.generateRandomKeys(32);
   }
 
+  async function commitmentFixture() {
+    nullifier = nullifier = BigInt(
+      "0x" + crypto.randomBytes(31).toString("hex")
+    ).toString();
+    secret = BigInt("0x" + crypto.randomBytes(31).toString("hex")).toString();
+    value = 100n.toString();
+    keys = await paillierBigint.generateRandomKeys(32);
+  }
+
   describe("snarkjs", function () {
-    let nullifier: string;
-    let secret: string;
-    let value: string;
-    let keys: paillierBigint.KeyPair;
-
-    async function commitmentFixture() {
-      nullifier = nullifier = BigInt(
-        "0x" + crypto.randomBytes(31).toString("hex")
-      ).toString();
-      secret = BigInt("0x" + crypto.randomBytes(31).toString("hex")).toString();
-      value = 100n.toString();
-      keys = await paillierBigint.generateRandomKeys(32);
-    }
-
     it("Create Deposit Commitment", async function () {
       await loadFixture(commitmentFixture);
 
@@ -90,6 +97,31 @@ describe("zkTips", function () {
       expect(balance == BigInt(value)).to.be.true;
 
       const result = await verifyNullifyDepositProof(proof, publicSignals);
+
+      expect(result).to.be.true;
+    });
+
+    it("Transfer Proof", async function () {
+      await loadFixture(deployFixture);
+
+      const { proof, publicSignals } = await transferProof(
+        keysA,
+        keysB,
+        BigInt(value),
+        keysA.publicKey.encrypt(BigInt(value)),
+        BigInt(mimcSponge.simpleHash(secret)),
+        BigInt(secret)
+      );
+
+      const valueA = keysA.privateKey.decrypt(BigInt(publicSignals[0]));
+      const valueB = keysB.privateKey.decrypt(BigInt(publicSignals[2]));
+
+      expect(valueA == BigInt(value)).to.be.true;
+      expect(valueB == BigInt(value)).to.be.true;
+
+      expect(publicSignals[3] == mimcSponge.simpleHash(secret)).to.be.true;
+
+      const result = await verifyTransferProof(proof, publicSignals);
 
       expect(result).to.be.true;
     });

@@ -35,8 +35,8 @@ contract zkTips is MerkleTreeWithHistory {
     IERC20 public token;
 
     ICreateDepositCommitment private createDepositVerifier;
+    INullifyDepositCommitment private nullifyDepositCommitmentVerifier;
 
-    // INullifyDepositCommitment private nullifyDepositCommitmentVerifier;
     // ITransfer private transferVerifier;
     // ICreateWithdrawCommitment private createWithdrawVerifier;
     // INullifyWithdrawCommitment private nullifWithdrawCommitmentVerifier;
@@ -56,9 +56,9 @@ contract zkTips is MerkleTreeWithHistory {
         createDepositVerifier = ICreateDepositCommitment(
             _createDepositVerifierAddr
         );
-        // nullifyDepositCommitmentVerifier = INullifyDepositCommitment(
-        //     _nullifyDepositCommitmentVerifier
-        // );
+        nullifyDepositCommitmentVerifier = INullifyDepositCommitment(
+            _nullifyDepositCommitmentVerifier
+        );
         // transferVerifier = ITransfer(_transferVerifier);
         // createWithdrawVerifier = ICreateWithdrawCommitment(
         //     _createWithdrawVerifier
