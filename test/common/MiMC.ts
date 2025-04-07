@@ -26,6 +26,18 @@ export class MiMC {
     return this.mimcSponge.F.toString(mimcHash);
   }
 
+  simpleHash(left: Element): string {
+    if (!this.mimcSponge) {
+      console.error("MimcSponge not initialized. Call init() first.");
+      return "";
+    }
+
+    const k = 0;
+    const mimcHash = this.mimcSponge.multiHash([left], k);
+
+    return this.mimcSponge.F.toString(mimcHash);
+  }
+
   getBytecode(): any {
     return mimcSpongecontract.createCode("mimcsponge", 220);
   }

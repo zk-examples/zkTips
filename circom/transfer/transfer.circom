@@ -1,12 +1,15 @@
-pragma circom 2.2.1;
+pragma circom 2.1.6;
 
+include "../../node_modules/circomlib/circuits/mimcsponge.circom";
 include "../binpower.circom";
 
-template Main() {
+template Transfer() {
 	signal input encryptedSenderBalance;
 	signal input encryptedSenderValue;
 	signal input encryptedReceiverValue;
 	signal input value;
+    signal input authCommitment;
+    signal input authSecret;
 
 	// public key: g, rand r, n
 	signal input senderPubKey[3];
@@ -14,6 +17,13 @@ template Main() {
 	
 	// private key: l, mu, n
 	signal input senderPrivKey[3];
+
+    component authCommitmentHasher = MiMCSponge(1, 220, 1);
+    authCommitmentHasher.ins[0] <== authSecret;
+    authCommitmentHasher.k <== 0;
+
+    // identity verification
+    authCommitment === authCommitmentHasher.outs[0];
 	
 	// value cannot be negative
 	assert(value > 0);
@@ -65,5 +75,6 @@ template Main() {
 component main {
 		public [encryptedSenderBalance,		// in storage
 				encryptedSenderValue, 		// sender calculates + send to transfer function
-				encryptedReceiverValue]		// sender calculates + send to transfer function	
-				} = Main();
+				encryptedReceiverValue,     // sender calculates + send to transfer function	
+                authCommitment]		        // in storage
+				} = Transfer();
