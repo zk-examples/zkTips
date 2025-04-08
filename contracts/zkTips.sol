@@ -16,6 +16,12 @@ contract zkTips is MerkleTreeWithHistory {
         uint encryptedBalance;
         Key key;
         bytes32 authCommitment;
+        mapping(uint256 => Allowance) allowance; // ID -> balances
+    }
+
+    struct Allowance {
+        uint encryptedHolderBalance;
+        uint encryptedSpenderBalance;
     }
 
     event Commit(
@@ -37,6 +43,8 @@ contract zkTips is MerkleTreeWithHistory {
     ICreateDepositCommitment private createDepositVerifier;
     INullifyDepositCommitment private nullifyDepositVerifier;
     ITransferVerifier private transferVerifier;
+    IApproveVerifier private approveVerifier;
+    ITransferFromVerifier private transferFromVerifier;
 
     // ICreateWithdrawCommitment private createWithdrawVerifier;
     // INullifyWithdrawCommitment private nullifWithdrawCommitmentVerifier;
@@ -48,6 +56,8 @@ contract zkTips is MerkleTreeWithHistory {
         address _createDepositVerifierAddr,
         address _nullifyDepositVerifier,
         address _transferVerifier,
+        address _approveVerifier,
+        address _transferFromVerifier,
         address _createWithdrawVerifier,
         address _nullifWithdrawCommitmentVerifier
     ) MerkleTreeWithHistory(_levels, IHasher(_hasher)) {
@@ -60,6 +70,8 @@ contract zkTips is MerkleTreeWithHistory {
             _nullifyDepositVerifier
         );
         transferVerifier = ITransferVerifier(_transferVerifier);
+        approveVerifier = IApproveVerifier(_approveVerifier);
+        transferFromVerifier = ITransferFromVerifier(_transferFromVerifier);
         // createWithdrawVerifier = ICreateWithdrawCommitment(
         //     _createWithdrawVerifier
         // );
@@ -102,19 +114,17 @@ contract zkTips is MerkleTreeWithHistory {
 
         nullifiers[bytes32(input[0])] = true;
 
-        User memory user;
+        User storage user = users[ids];
         user.authCommitment = bytes32(authCommitment);
         user.encryptedBalance = input[2];
         user.key.g = input[3];
         user.key.n = input[5];
         user.key.powN2 = input[5] * input[5];
 
-        users[ids] = user;
-
         ids++;
     }
 
-    function transferFrom(
+    function transfer(
         uint256 idFrom,
         uint256 idTo,
         uint256[2] calldata a,
@@ -127,7 +137,7 @@ contract zkTips is MerkleTreeWithHistory {
         User storage receiver = users[idTo];
         User storage sender = users[idFrom];
 
-        require(bytes32(input[3]) == users[idFrom].authCommitment);
+        require(bytes32(input[3]) == sender.authCommitment, "Unauthorized");
 
         unchecked {
             receiver.encryptedBalance =
@@ -140,12 +150,101 @@ contract zkTips is MerkleTreeWithHistory {
         }
     }
 
+    function approve(
+        uint256 holderID,
+        uint256 spenderID,
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[5] calldata input
+    ) external {
+        require(approveVerifier.verifyProof(a, b, c, input), "Invalid proof");
+
+        User storage holder = users[holderID];
+
+        require(bytes32(input[3]) == holder.authCommitment, "Unauthorized");
+
+        unchecked {
+            // уменьшаем баланс
+            holder.encryptedBalance =
+                (holder.encryptedBalance * input[0]) %
+                holder.key.powN2;
+        }
+
+        Allowance storage allowance = holder.allowance[spenderID];
+
+        if (
+            allowance.encryptedHolderBalance == 0 &&
+            allowance.encryptedSpenderBalance == 0
+        ) {
+            allowance.encryptedHolderBalance = input[1];
+            allowance.encryptedSpenderBalance = input[2];
+        } else {
+            User storage spender = users[spenderID];
+
+            unchecked {
+                allowance.encryptedHolderBalance =
+                    (allowance.encryptedHolderBalance * input[1]) %
+                    holder.key.powN2;
+
+                allowance.encryptedSpenderBalance =
+                    (allowance.encryptedSpenderBalance * input[2]) %
+                    spender.key.powN2;
+            }
+        }
+    }
+
+    function transferFrom(
+        uint256 idFrom,
+        uint256 idSpender,
+        uint256 idTo,
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[5] calldata input
+    ) external {
+        require(
+            transferFromVerifier.verifyProof(a, b, c, input),
+            "Invalid proof"
+        );
+
+        User storage spender = users[idSpender];
+
+        require(bytes32(input[3]) == spender.authCommitment, "Unauthorized");
+
+        User storage holder = users[idFrom];
+        User storage receiver = users[idTo];
+
+        Allowance storage allowance = users[idFrom].allowance[idSpender];
+
+        unchecked {
+            receiver.encryptedBalance =
+                (receiver.encryptedBalance * input[2]) %
+                receiver.key.powN2;
+
+            allowance.encryptedSpenderBalance =
+                (allowance.encryptedSpenderBalance * input[1]) %
+                spender.key.powN2;
+
+            allowance.encryptedHolderBalance =
+                (allowance.encryptedHolderBalance * input[0]) %
+                holder.key.powN2;
+        }
+    }
+
     function balanceOf(uint256 _id) external view returns (uint256) {
         return users[_id].encryptedBalance;
     }
 
     function getPubKey(uint256 _id) external view returns (Key memory) {
         return users[_id].key;
+    }
+
+    function getAllowance(
+        uint256 holderID,
+        uint256 spenderID
+    ) external view returns (Allowance memory) {
+        return users[holderID].allowance[spenderID];
     }
 
     function _commit(bytes32 _commitment) internal {

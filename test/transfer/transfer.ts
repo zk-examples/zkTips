@@ -25,12 +25,12 @@ export async function transfer(
     senderKeys,
     receiverKeys,
     value,
-    senderKeys.publicKey.encrypt(value),
+    await zkTips.balanceOf(idFrom),
     BigInt(authCommitment),
     BigInt(authSecret)
   );
 
-  await zkTips.connect(signer).transferFrom(
+  await zkTips.connect(signer).transfer(
     idFrom,
     idTo,
     [proof.pi_a[0], proof.pi_a[1]],

@@ -27,3 +27,21 @@ interface ITransferVerifier {
         uint256[4] calldata _pubSignals
     ) external view returns (bool);
 }
+
+interface IApproveVerifier {
+    function verifyProof(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[5] calldata _pubSignals
+    ) external view returns (bool);
+}
+
+interface ITransferFromVerifier {
+    function verifyProof(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[5] calldata _pubSignals
+    ) external view returns (bool);
+}

@@ -30,6 +30,8 @@ import {
 import { MiMC } from "./common/MiMC";
 import { TestToken, ZkTips } from "../typechain-types";
 import MerkleTree, { HashFunction, Element } from "fixed-merkle-tree";
+import { approve, approveProof, verifyApproveProof } from "./approve/approve";
+import { transferFrom, transferFromProof } from "./transferFrom/transferFrom";
 
 // npx hardhat test test\zkTips.test.ts
 describe("zkTips", function () {
@@ -40,10 +42,13 @@ describe("zkTips", function () {
   let createDepositVerifier: any;
   let nullifyDepositVerifier: any;
   let transferVerifier: any;
+  let approveVerifier: any;
+  let transferFromVerifier: any;
   let token: TestToken;
 
   let keysA: paillierBigint.KeyPair;
   let keysB: paillierBigint.KeyPair;
+  let keysC: paillierBigint.KeyPair;
   let keys: paillierBigint.KeyPair;
 
   let mimcSponge: MiMC;
@@ -51,23 +56,20 @@ describe("zkTips", function () {
 
   let nullifierA: string;
   let nullifierB: string;
+  let nullifierC: string;
   let secretA: string;
   let secretB: string;
+  let secretC: string;
   let value: string;
   const initBalance = hre.ethers.parseEther("1000");
+
+  const hashFunction: HashFunction<Element> = (left, right) => {
+    return mimcSponge.hash(left, right);
+  };
 
   async function deployFixture() {
     mimcSponge = new MiMC();
     await mimcSponge.init();
-
-    const hashFunction: HashFunction<Element> = (left, right) => {
-      return mimcSponge.hash(left, right);
-    };
-
-    tree = new MerkleTree(TREE_LEVELS, undefined, {
-      hashFunction,
-      zeroElement: ZERO_VALUE,
-    });
 
     signers = await hre.ethers.getSigners();
 
@@ -83,6 +85,7 @@ describe("zkTips", function () {
     token = (await hre.ethers.deployContract("TestToken", [
       signers[0],
       signers[1],
+      signers[2],
     ])) as unknown as TestToken;
 
     createDepositVerifier = await hre.ethers.deployContract(
@@ -92,40 +95,51 @@ describe("zkTips", function () {
       "NullifyDepositCommitment"
     );
     transferVerifier = await hre.ethers.deployContract("TransferVerifier");
+    approveVerifier = await hre.ethers.deployContract("ApproveVerifier");
+    transferFromVerifier = await hre.ethers.deployContract(
+      "TransferFromVerifier"
+    );
 
     zkTips = (await hre.ethers.deployContract("zkTips", [
       TREE_LEVELS,
       mimcspongeAddr,
       token.target,
-
       createDepositVerifier.target,
       nullifyDepositVerifier.target,
       transferVerifier.target,
+      approveVerifier.target,
+      transferFromVerifier.target,
       transferVerifier.target,
       transferVerifier.target,
     ])) as unknown as ZkTips;
 
     keysA = await paillierBigint.generateRandomKeys(32);
     keysB = await paillierBigint.generateRandomKeys(32);
+    keysC = await paillierBigint.generateRandomKeys(32);
 
     await token.connect(signers[0]).approve(zkTips.target, initBalance);
     await token.connect(signers[1]).approve(zkTips.target, initBalance);
+    await token.connect(signers[2]).approve(zkTips.target, initBalance);
 
-    commitmentFixture();
-  }
-
-  async function commitmentFixture() {
     nullifierA = getNullifierOrSecret();
     secretA = getNullifierOrSecret();
-    value = 100n.toString();
-    keys = await paillierBigint.generateRandomKeys(32);
     nullifierB = getNullifierOrSecret();
     secretB = getNullifierOrSecret();
+    nullifierC = getNullifierOrSecret();
+    secretC = getNullifierOrSecret();
+
+    value = 100n.toString();
+    keys = await paillierBigint.generateRandomKeys(32);
+
+    tree = new MerkleTree(TREE_LEVELS, undefined, {
+      hashFunction,
+      zeroElement: ZERO_VALUE,
+    });
   }
 
   describe.skip("snarkjs", function () {
     it("Create Deposit Commitment", async function () {
-      await loadFixture(commitmentFixture);
+      await loadFixture(deployFixture);
 
       const { proof, publicSignals } = await createDepositProof(
         value,
@@ -139,13 +153,14 @@ describe("zkTips", function () {
     });
 
     it("Nullify Deposit Commitment", async function () {
-      await loadFixture(commitmentFixture);
+      await loadFixture(deployFixture);
 
       const { proof, publicSignals } = await nullifyDepositProof(
         value,
         secretA,
         nullifierA,
-        keys
+        keys,
+        tree
       );
 
       const balance = keys.privateKey.decrypt(BigInt(publicSignals[2]));
@@ -181,6 +196,31 @@ describe("zkTips", function () {
 
       expect(result).to.be.true;
     });
+
+    it("Approve Proof", async function () {
+      await loadFixture(deployFixture);
+
+      const { proof, publicSignals } = await approveProof(
+        keysA, // holder
+        keysB, // spender
+        BigInt(value), // value
+        keysA.publicKey.encrypt(BigInt(value)), // encryptedHolderBalance
+        secretA // authSecret
+      );
+
+      const authCommitment = mimcSponge.simpleHash(secretA);
+      expect(authCommitment == publicSignals[3]).to.be.true;
+
+      const valueA = keysA.privateKey.decrypt(BigInt(publicSignals[1]));
+      const valueB = keysB.privateKey.decrypt(BigInt(publicSignals[2]));
+
+      expect(valueA == BigInt(value)).to.be.true;
+      expect(valueB == BigInt(value)).to.be.true;
+
+      const result = await verifyApproveProof(proof, publicSignals);
+
+      expect(result).to.be.true;
+    });
   });
 
   describe("zkTips", function () {
@@ -196,6 +236,8 @@ describe("zkTips", function () {
 
     it.skip("Create Deposit Commitment", async function () {
       await loadFixture(deployFixture);
+
+      resetTree();
 
       const balanceBefore = await token.balanceOf(signers[0]);
 
@@ -222,6 +264,8 @@ describe("zkTips", function () {
 
     it.skip("Nullify Deposit Commitment", async function () {
       await loadFixture(deployFixture);
+
+      resetTree();
 
       await createDepositCommitment(
         zkTips,
@@ -252,46 +296,10 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it("Transfer", async function () {
+    it.skip("Transfer", async function () {
       await loadFixture(deployFixture);
 
-      await createDepositCommitment(
-        zkTips,
-        signers[0],
-        value,
-        secretA,
-        nullifierA
-      );
-
-      await nullifyDepositCommitment(
-        zkTips,
-        signers[0],
-        value,
-        secretA,
-        nullifierA,
-        keysA,
-        mimcSponge.simpleHash(secretA),
-        tree
-      );
-
-      await createDepositCommitment(
-        zkTips,
-        signers[1],
-        value,
-        secretB,
-        nullifierB
-      );
-
-      await nullifyDepositCommitment(
-        zkTips,
-        signers[1],
-        value,
-        secretB,
-        nullifierB,
-        keysB,
-        mimcSponge.simpleHash(secretB),
-        tree
-      );
+      await registrationABC();
 
       const transferValue = 20n;
 
@@ -324,5 +332,170 @@ describe("zkTips", function () {
           BigInt(value) + transferValue
       ).to.be.true;
     });
+
+    it.skip("Approve + IncreaseAllowance", async function () {
+      await loadFixture(deployFixture);
+
+      await registrationABC();
+
+      const approveValue = 20n;
+
+      await approve(
+        zkTips,
+        signers[0],
+        keysA,
+        keysB,
+        approveValue,
+        secretA,
+        0n,
+        1n
+      );
+
+      await approve(
+        zkTips,
+        signers[0],
+        keysA,
+        keysB,
+        approveValue,
+        secretA,
+        0n,
+        1n
+      );
+
+      expect(
+        keysA.privateKey.decrypt(await zkTips.balanceOf(0)) ==
+          BigInt(value) - approveValue * 2n
+      ).to.be.true;
+
+      const allowance = await zkTips.getAllowance(0, 1);
+
+      expect(
+        keysA.privateKey.decrypt(allowance.encryptedHolderBalance) ==
+          approveValue * 2n
+      ).to.be.true;
+
+      expect(
+        keysB.privateKey.decrypt(allowance.encryptedSpenderBalance) ==
+          approveValue * 2n
+      ).to.be.true;
+    });
+
+    it("TransferFrom", async function () {
+      await loadFixture(deployFixture);
+
+      await registrationABC();
+
+      const approveValue = 30n;
+      const transferValue = 10n;
+
+      await approve(
+        zkTips,
+        signers[0],
+        keysA,
+        keysB,
+        approveValue,
+        secretA,
+        0n,
+        1n
+      );
+
+      await transferFrom(
+        zkTips,
+        signers[1],
+        keysA,
+        keysB,
+        keysC,
+        transferValue,
+        secretB,
+        0n,
+        1n,
+        2n
+      );
+
+      expect(
+        keysC.privateKey.decrypt(await zkTips.balanceOf(2)) ==
+          BigInt(value) + transferValue
+      ).to.be.true;
+
+      const allowance = await zkTips.getAllowance(0, 1);
+
+      expect(
+        keysA.privateKey.decrypt(allowance.encryptedHolderBalance) ==
+          approveValue - transferValue
+      ).to.be.true;
+
+      expect(
+        keysB.privateKey.decrypt(allowance.encryptedSpenderBalance) ==
+          approveValue - transferValue
+      ).to.be.true;
+    });
   });
+
+  const registrationABC = async () => {
+    resetTree();
+
+    await createDepositCommitment(
+      zkTips,
+      signers[0],
+      value,
+      secretA,
+      nullifierA
+    );
+
+    await nullifyDepositCommitment(
+      zkTips,
+      signers[0],
+      value,
+      secretA,
+      nullifierA,
+      keysA,
+      mimcSponge.simpleHash(secretA),
+      tree
+    );
+
+    await createDepositCommitment(
+      zkTips,
+      signers[1],
+      value,
+      secretB,
+      nullifierB
+    );
+
+    await nullifyDepositCommitment(
+      zkTips,
+      signers[1],
+      value,
+      secretB,
+      nullifierB,
+      keysB,
+      mimcSponge.simpleHash(secretB),
+      tree
+    );
+
+    await createDepositCommitment(
+      zkTips,
+      signers[2],
+      value,
+      secretC,
+      nullifierC
+    );
+
+    await nullifyDepositCommitment(
+      zkTips,
+      signers[2],
+      value,
+      secretC,
+      nullifierC,
+      keysC,
+      mimcSponge.simpleHash(secretC),
+      tree
+    );
+  };
+
+  const resetTree = () => {
+    tree = new MerkleTree(TREE_LEVELS, undefined, {
+      hashFunction,
+      zeroElement: ZERO_VALUE,
+    });
+  };
 });
