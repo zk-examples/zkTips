@@ -124,7 +124,8 @@ contract zkTips is MerkleTreeWithHistory {
         uint256[2][2] calldata b,
         uint256[2] calldata c,
         uint256[6] calldata input,
-        uint256 authCommitment
+        uint256 authCommitment,
+        uint256 id
     ) external {
         require(
             nullifyDepositVerifier.verifyProof(a, b, c, input),
@@ -136,16 +137,33 @@ contract zkTips is MerkleTreeWithHistory {
         );
         require(isKnownRoot(bytes32(input[1])), "Cannot find your merkle root");
 
+        id = id == 0 ? ids : id;
+
         nullifiers[bytes32(input[0])] = true;
 
-        User storage user = users[ids];
-        user.authCommitment = bytes32(authCommitment);
-        user.encryptedBalance = input[2];
-        user.key.g = input[3];
-        user.key.n = input[5];
-        user.key.powN2 = input[5] * input[5];
+        User storage user = users[id];
+        if (user.key.n == 0) {
+            // Structure is empty, initialize it
+            user.authCommitment = bytes32(authCommitment);
+            user.encryptedBalance = input[2];
+            user.key.g = input[3];
+            user.key.n = input[5];
+            user.key.powN2 = input[5] * input[5];
 
-        ids++;
+            ids++;
+        } else {
+            // Structure exists, verify keys match and update balance
+            require(
+                user.key.n == input[5] && user.key.g == input[3],
+                "Keys mismatch"
+            );
+            user.authCommitment = bytes32(authCommitment);
+            user.encryptedBalance = _update(
+                user.encryptedBalance,
+                input[2],
+                user.key.powN2
+            );
+        }
     }
 
     function nullifyWithdrawalCommitment(

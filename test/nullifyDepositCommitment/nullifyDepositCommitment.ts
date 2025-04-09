@@ -15,6 +15,7 @@ export async function nullifyDepositCommitment(
   nullifier: string,
   keys: paillierBigint.KeyPair,
   authCommitment: string,
+  id: bigint,
   tree: MerkleTree
 ) {
   const { proof, publicSignals } = await nullifyDepositProof(
@@ -33,7 +34,8 @@ export async function nullifyDepositCommitment(
     ],
     [proof.pi_c[0], proof.pi_c[1]],
     publicSignals,
-    authCommitment
+    authCommitment,
+    id
   );
 }
 

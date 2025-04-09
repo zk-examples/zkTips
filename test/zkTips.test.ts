@@ -245,7 +245,7 @@ describe("zkTips", function () {
       expect(balance1 == BigInt(initBalance)).to.be.true;
     });
 
-    it.skip("Create Deposit Commitment", async function () {
+    it("Create Deposit Commitment", async function () {
       await loadFixture(deployFixture);
 
       resetTree();
@@ -273,7 +273,7 @@ describe("zkTips", function () {
         .true;
     });
 
-    it.skip("Nullify Deposit Commitment", async function () {
+    it("Nullify Deposit Commitment", async function () {
       await loadFixture(deployFixture);
 
       resetTree();
@@ -294,6 +294,7 @@ describe("zkTips", function () {
         nullifierA,
         keysA,
         mimcSponge.simpleHash(secretA),
+        0n,
         tree
       );
 
@@ -307,7 +308,7 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it.skip("Transfer", async function () {
+    it("Transfer", async function () {
       await loadFixture(deployFixture);
 
       await registrationABC();
@@ -344,7 +345,7 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it.skip("Approve + IncreaseAllowance", async function () {
+    it("Approve + IncreaseAllowance", async function () {
       await loadFixture(deployFixture);
 
       await registrationABC();
@@ -391,7 +392,7 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it.skip("TransferFrom", async function () {
+    it("TransferFrom", async function () {
       await loadFixture(deployFixture);
 
       await registrationABC();
@@ -441,7 +442,7 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it.skip("Transfer agregation", async function () {
+    it("Transfer agregation", async function () {
       await loadFixture(deployFixture);
 
       await registrationABC();
@@ -525,6 +526,7 @@ describe("zkTips", function () {
       nullifierA,
       keysA,
       mimcSponge.simpleHash(secretA),
+      0n,
       tree
     );
 
@@ -544,6 +546,7 @@ describe("zkTips", function () {
       nullifierB,
       keysB,
       mimcSponge.simpleHash(secretB),
+      1n,
       tree
     );
 
@@ -563,6 +566,7 @@ describe("zkTips", function () {
       nullifierC,
       keysC,
       mimcSponge.simpleHash(secretC),
+      2n,
       tree
     );
   };
