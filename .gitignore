@@ -16,3 +16,5 @@ node_modules
 *.wasm
 *.r1cs
 *.ptau
+
+test/transfer/transferAgregation

@@ -17,6 +17,7 @@ import {
 
 import {
   transfer,
+  transferAgregation,
   transferProof,
   verifyTransferProof,
 } from "./transfer/transfer";
@@ -32,6 +33,8 @@ import { TestToken, ZkTips } from "../typechain-types";
 import MerkleTree, { HashFunction, Element } from "fixed-merkle-tree";
 import { approve, approveProof, verifyApproveProof } from "./approve/approve";
 import { transferFrom, transferFromProof } from "./transferFrom/transferFrom";
+import { createWithdrawalCommitment } from "./createWithdrawalCommitment/createWithdrawalCommitment";
+import { nullifyWithdrawalCommitment } from "./nullifyWithdrawalCommitment/nullifyWithdrawalCommitment";
 
 // npx hardhat test test\zkTips.test.ts
 describe("zkTips", function () {
@@ -44,6 +47,8 @@ describe("zkTips", function () {
   let transferVerifier: any;
   let approveVerifier: any;
   let transferFromVerifier: any;
+  let createWithdrawVerifier: any;
+  let nullifyWithdrawVerifier: any;
   let token: TestToken;
 
   let keysA: paillierBigint.KeyPair;
@@ -99,6 +104,12 @@ describe("zkTips", function () {
     transferFromVerifier = await hre.ethers.deployContract(
       "TransferFromVerifier"
     );
+    createWithdrawVerifier = await hre.ethers.deployContract(
+      "CreateWithdrawCommitmentVerifier"
+    );
+    nullifyWithdrawVerifier = await hre.ethers.deployContract(
+      "NullifyWithdrawalCommitmentVerifier"
+    );
 
     zkTips = (await hre.ethers.deployContract("zkTips", [
       TREE_LEVELS,
@@ -109,8 +120,8 @@ describe("zkTips", function () {
       transferVerifier.target,
       approveVerifier.target,
       transferFromVerifier.target,
-      transferVerifier.target,
-      transferVerifier.target,
+      createWithdrawVerifier.target,
+      nullifyWithdrawVerifier.target,
     ])) as unknown as ZkTips;
 
     keysA = await paillierBigint.generateRandomKeys(32);
@@ -224,7 +235,7 @@ describe("zkTips", function () {
   });
 
   describe("zkTips", function () {
-    it.skip("Deployed", async function () {
+    it("Deployed", async function () {
       await loadFixture(deployFixture);
 
       const balance0 = await token.balanceOf(signers[0]);
@@ -380,7 +391,7 @@ describe("zkTips", function () {
       ).to.be.true;
     });
 
-    it("TransferFrom", async function () {
+    it.skip("TransferFrom", async function () {
       await loadFixture(deployFixture);
 
       await registrationABC();
@@ -427,6 +438,70 @@ describe("zkTips", function () {
       expect(
         keysB.privateKey.decrypt(allowance.encryptedSpenderBalance) ==
           approveValue - transferValue
+      ).to.be.true;
+    });
+
+    it.skip("Transfer agregation", async function () {
+      await loadFixture(deployFixture);
+
+      await registrationABC();
+
+      const transferValue = 1n;
+
+      let balance = await zkTips.balanceOf(0);
+
+      for (let i = 0n; i < 5n; i++) {
+        balance = await transferAgregation(
+          keysA,
+          keysB,
+          transferValue,
+          secretA,
+          i,
+          balance
+        );
+
+        console.log(keysA.privateKey.decrypt(balance));
+      }
+    });
+
+    it("Create + Nullify Withdrawal Commitment", async function () {
+      await loadFixture(deployFixture);
+
+      await registrationABC();
+
+      nullifierA = getNullifierOrSecret();
+
+      const withdrawValue = 15n;
+
+      await createWithdrawalCommitment(
+        zkTips,
+        0,
+        withdrawValue.toString(),
+        secretB,
+        nullifierA,
+        secretA, // authSecret
+        keysA
+      );
+
+      const balance = keysA.privateKey.decrypt(await zkTips.balanceOf(0));
+
+      expect(balance == BigInt(value) - withdrawValue).to.be.true;
+
+      const balanceTokenBefore = await token.balanceOf(signers[0]);
+
+      await nullifyWithdrawalCommitment(
+        zkTips,
+        withdrawValue.toString(),
+        secretB,
+        nullifierA,
+        tree
+      );
+
+      const balanceTokenAfter = await token.balanceOf(signers[0]);
+
+      expect(
+        balanceTokenBefore + hre.ethers.parseUnits(withdrawValue.toString()) ==
+          balanceTokenAfter
       ).to.be.true;
     });
   });

@@ -43,6 +43,41 @@ export async function transfer(
   );
 }
 
+export async function transferAgregation(
+  senderKeys: paillierBigint.KeyPair,
+  receiverKeys: paillierBigint.KeyPair,
+  value: bigint,
+  authSecret: string,
+  index: bigint,
+  balance: bigint
+) {
+  const mimcSponge = new MiMC();
+  await mimcSponge.init();
+
+  const authCommitment = mimcSponge.simpleHash(authSecret);
+
+  const { proof, publicSignals } = await transferProof(
+    senderKeys,
+    receiverKeys,
+    value,
+    balance,
+    BigInt(authCommitment),
+    BigInt(authSecret)
+  );
+
+  // Save proof and public signals to files
+  fs.writeFileSync(
+    `test/transfer/transferAgregation/proof_${index}.json`,
+    JSON.stringify(proof)
+  );
+  fs.writeFileSync(
+    `test/transfer/transferAgregation/public_signals_${index}.json`,
+    JSON.stringify(publicSignals)
+  );
+
+  return senderKeys.publicKey.addition(balance, BigInt(publicSignals[1]));
+}
+
 export async function transferProof(
   senderKeys: paillierBigint.KeyPair,
   receiverKeys: paillierBigint.KeyPair,

@@ -40,14 +40,13 @@ contract zkTips is MerkleTreeWithHistory {
 
     IERC20 public token;
 
-    ICreateDepositCommitment private createDepositVerifier;
-    INullifyDepositCommitment private nullifyDepositVerifier;
+    ICreateDepositCommitmentVerifier private createDepositVerifier;
+    INullifyDepositCommitmentVerifier private nullifyDepositVerifier;
     ITransferVerifier private transferVerifier;
     IApproveVerifier private approveVerifier;
     ITransferFromVerifier private transferFromVerifier;
-
-    // ICreateWithdrawCommitment private createWithdrawVerifier;
-    // INullifyWithdrawCommitment private nullifWithdrawCommitmentVerifier;
+    ICreateWithdrawCommitmentVerifier private createWithdrawVerifier;
+    INullifyWithdrawCommitmentVerifier private nullifWithdrawCommitmentVerifier;
 
     constructor(
         uint32 _levels,
@@ -63,21 +62,21 @@ contract zkTips is MerkleTreeWithHistory {
     ) MerkleTreeWithHistory(_levels, IHasher(_hasher)) {
         token = IERC20(_token);
 
-        createDepositVerifier = ICreateDepositCommitment(
+        createDepositVerifier = ICreateDepositCommitmentVerifier(
             _createDepositVerifierAddr
         );
-        nullifyDepositVerifier = INullifyDepositCommitment(
+        nullifyDepositVerifier = INullifyDepositCommitmentVerifier(
             _nullifyDepositVerifier
         );
         transferVerifier = ITransferVerifier(_transferVerifier);
         approveVerifier = IApproveVerifier(_approveVerifier);
         transferFromVerifier = ITransferFromVerifier(_transferFromVerifier);
-        // createWithdrawVerifier = ICreateWithdrawCommitment(
-        //     _createWithdrawVerifier
-        // );
-        // nullifWithdrawCommitmentVerifier = INullifyWithdrawCommitment(
-        //     _nullifWithdrawCommitmentVerifier
-        // );
+        createWithdrawVerifier = ICreateWithdrawCommitmentVerifier(
+            _createWithdrawVerifier
+        );
+        nullifWithdrawCommitmentVerifier = INullifyWithdrawCommitmentVerifier(
+            _nullifWithdrawCommitmentVerifier
+        );
     }
 
     function createDepositCommitment(
@@ -93,6 +92,31 @@ contract zkTips is MerkleTreeWithHistory {
 
         token.transferFrom(msg.sender, address(this), input[0] * 1e18);
         _commit(bytes32(input[1]));
+    }
+
+    function createWithdrawalCommitment(
+        uint256 idFrom,
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[3] calldata input
+    ) external {
+        require(
+            createWithdrawVerifier.verifyProof(a, b, c, input),
+            "Invalid proof"
+        );
+
+        User storage sender = users[idFrom];
+
+        require(bytes32(input[2]) == sender.authCommitment, "Unauthorized");
+
+        sender.encryptedBalance = _update(
+            sender.encryptedBalance,
+            input[1],
+            sender.key.powN2
+        );
+
+        _commit(bytes32(input[0]));
     }
 
     function nullifyDepositCommitment(
@@ -124,6 +148,28 @@ contract zkTips is MerkleTreeWithHistory {
         ids++;
     }
 
+    function nullifyWithdrawalCommitment(
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[3] calldata input
+    ) external {
+        require(
+            nullifWithdrawCommitmentVerifier.verifyProof(a, b, c, input),
+            "Invalid proof"
+        );
+
+        require(
+            !nullifiers[bytes32(input[0])],
+            "The nullifier has been submitted"
+        );
+        require(isKnownRoot(bytes32(input[1])), "Cannot find your merkle root");
+
+        nullifiers[bytes32(input[0])] = true;
+
+        token.transfer(msg.sender, input[2] * 1e18);
+    }
+
     function transfer(
         uint256 idFrom,
         uint256 idTo,
@@ -140,13 +186,17 @@ contract zkTips is MerkleTreeWithHistory {
         require(bytes32(input[3]) == sender.authCommitment, "Unauthorized");
 
         unchecked {
-            receiver.encryptedBalance =
-                (receiver.encryptedBalance * input[2]) %
-                receiver.key.powN2;
+            receiver.encryptedBalance = _update(
+                receiver.encryptedBalance,
+                input[2],
+                receiver.key.powN2
+            );
 
-            sender.encryptedBalance =
-                (sender.encryptedBalance * input[1]) %
-                sender.key.powN2;
+            sender.encryptedBalance = _update(
+                sender.encryptedBalance,
+                input[1],
+                sender.key.powN2
+            );
         }
     }
 
@@ -183,13 +233,17 @@ contract zkTips is MerkleTreeWithHistory {
             User storage spender = users[spenderID];
 
             unchecked {
-                allowance.encryptedHolderBalance =
-                    (allowance.encryptedHolderBalance * input[1]) %
-                    holder.key.powN2;
+                allowance.encryptedHolderBalance = _update(
+                    allowance.encryptedHolderBalance,
+                    input[1],
+                    holder.key.powN2
+                );
 
-                allowance.encryptedSpenderBalance =
-                    (allowance.encryptedSpenderBalance * input[2]) %
-                    spender.key.powN2;
+                allowance.encryptedSpenderBalance = _update(
+                    allowance.encryptedSpenderBalance,
+                    input[2],
+                    spender.key.powN2
+                );
             }
         }
     }
@@ -218,17 +272,23 @@ contract zkTips is MerkleTreeWithHistory {
         Allowance storage allowance = users[idFrom].allowance[idSpender];
 
         unchecked {
-            receiver.encryptedBalance =
-                (receiver.encryptedBalance * input[2]) %
-                receiver.key.powN2;
+            receiver.encryptedBalance = _update(
+                receiver.encryptedBalance,
+                input[2],
+                receiver.key.powN2
+            );
 
-            allowance.encryptedSpenderBalance =
-                (allowance.encryptedSpenderBalance * input[1]) %
-                spender.key.powN2;
+            allowance.encryptedSpenderBalance = _update(
+                allowance.encryptedSpenderBalance,
+                input[1],
+                spender.key.powN2
+            );
 
-            allowance.encryptedHolderBalance =
-                (allowance.encryptedHolderBalance * input[0]) %
-                holder.key.powN2;
+            allowance.encryptedHolderBalance = _update(
+                allowance.encryptedHolderBalance,
+                input[0],
+                holder.key.powN2
+            );
         }
     }
 
@@ -252,5 +312,13 @@ contract zkTips is MerkleTreeWithHistory {
         commitments[_commitment] = true;
         uint32 insertedIndex = _insert(_commitment);
         emit Commit(_commitment, insertedIndex, block.timestamp);
+    }
+
+    function _update(
+        uint256 encryptedBalance,
+        uint256 value,
+        uint256 powN2
+    ) internal pure returns (uint256) {
+        return (encryptedBalance * value) % powN2;
     }
 }

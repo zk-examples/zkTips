@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-interface ICreateDepositCommitment {
+interface ICreateDepositCommitmentVerifier {
     function verifyProof(
         uint256[2] calldata _pA,
         uint256[2][2] calldata _pB,
@@ -10,7 +10,7 @@ interface ICreateDepositCommitment {
     ) external view returns (bool);
 }
 
-interface INullifyDepositCommitment {
+interface INullifyDepositCommitmentVerifier {
     function verifyProof(
         uint256[2] calldata _pA,
         uint256[2][2] calldata _pB,
@@ -43,5 +43,23 @@ interface ITransferFromVerifier {
         uint256[2][2] calldata _pB,
         uint256[2] calldata _pC,
         uint256[5] calldata _pubSignals
+    ) external view returns (bool);
+}
+
+interface ICreateWithdrawCommitmentVerifier {
+    function verifyProof(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[3] calldata _pubSignals
+    ) external view returns (bool);
+}
+
+interface INullifyWithdrawCommitmentVerifier {
+    function verifyProof(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[3] calldata _pubSignals
     ) external view returns (bool);
 }
